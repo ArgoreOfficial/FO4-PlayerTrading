@@ -12,6 +12,8 @@
 
 #include <vector>
 
+#include "Client/cClient.h"
+
 namespace TradingTerminal
 {
 	struct ItemTrade
@@ -46,6 +48,7 @@ namespace TradingTerminal
 		std::vector<int> sending;
 		std::vector<int> receiving;
 
+		cClient client;
 	} state;
 
 	static inline const char* EXPORT_SCRIPT = "TradingTerminal";

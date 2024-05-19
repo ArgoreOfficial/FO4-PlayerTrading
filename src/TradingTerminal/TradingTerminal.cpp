@@ -41,6 +41,9 @@ bool TradingTerminal::init( const F4SEInterface* f4se )
 		float f;
 	} test;
 
+	state.client.create( 9000 );
+	state.client.connect( "127.0.0.1", 8000 );
+
 	return true;
 }
 
@@ -421,6 +424,9 @@ void TradingTerminal::listInventoryItems( StaticFunctionTag* base, TESObjectREFR
 		{
 		#ifdef ARG_DEBUG
 			printf( "item: %s(%i) [%02x]\n", item.form->GetFullName(), item.stack->count, item.form->formID );
+			state.sending.push_back( item.stack->count );
+			state.sending.push_back( item.form->formID );
+			
 		#endif
 		
 			// get extra data, if any
@@ -444,21 +450,43 @@ void TradingTerminal::listInventoryItems( StaticFunctionTag* base, TESObjectREFR
 				omods.Get( &omod, i );
 			#ifdef ARG_DEBUG
 				printf( "  mod: %s [%02x]\n", omod->fullName.name.c_str(), omod->formID);
+				state.sending.push_back( omod->formID );
 			#endif
 			}
 
 			itemstack = itemstack->next;
+			state.sending.push_back( 0 );
 		} while ( itemstack );
 	}
 
 	inventory->inventoryLock.UnlockRead();
+
+
+
+
+
+
+	// send items
+	state.sending.insert( state.sending.begin(), ePacketType::PacketType_Send );
+
+	for ( int i = 0; i < state.sending.size(); i++ )
+		printf( "[%02x]", state.sending[ i ] );
+	
+	state.client.sendData( "127.0.0.1", 8000, state.sending.data(), state.sending.size() * 4 );
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
 void TradingTerminal::sendItems( StaticFunctionTag* base )
 {
-	
+	state.sending.insert( state.sending.begin(), ePacketType::PacketType_Send );
+
+	for ( int i = 0; i < state.sending.size(); i++ )
+	{
+		printf( "[%02x]", state.sending[ i ] );
+	}
+
+	state.client.sendData( "127.0.0.1", 8000 );
 }
 
 ////////////////////////////////////////////////////////////////////////////////
