@@ -24,7 +24,8 @@ project "PlayerTrading"
 		"../../src",
 		"../../f4se-core",
 		"../../f4se-core/f4se",
-		"../../f4se-core/common"
+		"../../f4se-core/common",
+		"../../include"
 	}
 
 	links { 

@@ -23,15 +23,14 @@ int main()
 	std::string code;
 	printf( "Code: " );
 	std::cin >> code;
+	try
+	{
+		uAddressCode code_union;	
+		code_union.c = std::stoi( code );
 
-	uAddressCode code_union;	
-	code_union.c = std::stoi( code );
-
-	// client.connect( "192.165.30.70", 8000 ); /
-	// / linux address
-	// client.connect( "193.234.137.55", 8000 ); // argore address
-
-	client.connect( code_union.dump().c_str(), 8000);
+		client.connect( code_union.dump().c_str(), 8000);
+	}
+	catch ( ... ) { }
 
 	while ( 1 )
 	{

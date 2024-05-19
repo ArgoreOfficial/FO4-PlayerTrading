@@ -12,7 +12,7 @@
 
 #include <shlobj.h>	// CSIDL_MYCODUMENTS
 
-#include "TradingTerminal/TradingTerminal.h"
+#include "TradingTerminal/cTradingTerminal.h"
 
 /* Plugin Query */
 
@@ -45,7 +45,7 @@ extern "C" {
 
 	bool F4SEPlugin_Load( const F4SEInterface* f4se )
 	{
-		if ( !TradingTerminal::init( f4se ) )
+		if ( !PlayerTrading::trading_terminal.init( f4se ) )
 		{
 			_MESSAGE( "Failed to Load" );
 			return false;

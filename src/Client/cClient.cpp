@@ -42,27 +42,15 @@ DWORD WINAPI receiveThread( LPVOID _param )
 			{
 			case PacketType_Connect:
 			{
-				if ( client->m_connected_addr == recv_addr.sin_addr.S_un.S_addr )
-				{
-					printf( "Connection Response\n" );
-				}
-				else
-				{
-					printf( "Connected to x.x.x.x:%i\n", recv_addr.sin_port );
-					client->m_connected_addr = recv_addr.sin_addr.S_un.S_addr;
-					client->m_connected_port = recv_addr.sin_port;
-
-					recv_addr.sin_family = AF_INET;
-					
-					client->m_send_buffer[ 0 ] = PacketType_Connect;
-					sendto( client->m_socket, client->m_send_buffer, sizeof( client->m_send_buffer ), 0, (SOCKADDR*)&recv_addr, sizeof( recv_addr ) );
-				}
+				client->handleConnection( recv_addr );
 			} break;
-			case PacketType_Send: 
+			case PacketType_Send:
 			{
-				printf( "got something\n" ); 
-				for ( int i = 0; i < ret; i++ )
+
+				printf( "got something\n" );
+				for ( int i = 0; i < ret / 4; i++ )
 					printf( "[%02x]", buffer[ i ] );
+
 			} break;
 			}
 
@@ -105,6 +93,25 @@ void cClient::connect( const char* _ip, WORD _port )
 	sendData( _ip, _port );
 }
 
+void cClient::handleConnection( SOCKADDR_IN _addr )
+{
+	if ( m_connected_addr == _addr.sin_addr.S_un.S_addr )
+	{
+		printf( "Connection Response\n" );
+	}
+	else
+	{
+		printf( "Connected\n" );
+		m_connected_addr = _addr.sin_addr.S_un.S_addr;
+		m_connected_port = _addr.sin_port;
+
+		_addr.sin_family = AF_INET;
+
+		m_send_buffer[ 0 ] = PacketType_Connect;
+		sendto( m_socket, m_send_buffer, sizeof( m_send_buffer ), 0, (SOCKADDR*)&_addr, sizeof( _addr ) );
+	}
+}
+
 void cClient::sendData( const char* _ip, WORD _port, void* _buffer, int _size )
 {
 	SOCKADDR_IN send_addr = { 0 };
@@ -114,12 +121,30 @@ void cClient::sendData( const char* _ip, WORD _port, void* _buffer, int _size )
 	send_addr.sin_addr.s_addr = inet_addr( _ip );
 
 	int res = sendto( m_socket, (char*)_buffer, _size, 0, (SOCKADDR*)&send_addr, sizeof( send_addr ) );
-
 }
 
 void cClient::sendData( const char* _ip, WORD _port )
 {
 	sendData( _ip, _port, m_send_buffer, sizeof( m_send_buffer ) );
+}
+
+void cClient::sendDataToConnected( void* _buffer, int _size )
+{
+	SOCKADDR_IN send_addr = { 0 };
+
+	send_addr.sin_family = AF_INET;
+	send_addr.sin_port = m_connected_port;
+	send_addr.sin_addr.S_un.S_addr = m_connected_addr;
+
+	int res = sendto( m_socket, (char*)_buffer, _size, 0, (SOCKADDR*)&send_addr, sizeof( send_addr ) );
+}
+
+std::vector<int> cClient::getReceivedData()
+{
+	if( !m_received_data || m_data_size == 0 ) 
+		return std::vector<int>();
+
+
 }
 
 SOCKET cClient::makeSocket( WORD _port )
@@ -147,8 +172,10 @@ SOCKET cClient::makeSocket( WORD _port )
 uAddressCode cClient::getExternalIP()
 {
 	
-	HINTERNET net = InternetOpenA( "Public IP retriever", INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0 );
+	if ( m_external_ip.c != 0 )
+		return m_external_ip;
 
+	HINTERNET net = InternetOpenA( "Public IP retriever", INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0 );
 	HINTERNET conn = InternetOpenUrlA( net, "http://myexternalip.com/raw", NULL, 0, INTERNET_FLAG_RELOAD, 0 );
 
 	char buffer[ 4096 ];
@@ -156,7 +183,6 @@ uAddressCode cClient::getExternalIP()
 
 	InternetReadFile( conn, buffer, sizeof( buffer ) / sizeof( buffer[ 0 ] ), &read );
 	InternetCloseHandle( net );
-
 
 	// parse string
 
@@ -174,6 +200,8 @@ uAddressCode cClient::getExternalIP()
 			n++;
 		}
 	}
+
+	m_external_ip = out;
 
 	return out;
 }
