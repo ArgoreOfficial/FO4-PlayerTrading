@@ -9,6 +9,15 @@
 
 #include "Client/cClient.h"
 
+#include <mutex>
+
+enum eMessageType
+{
+	MessageType_NONE = 0,
+	MessageType_ConfirmTrade = 1,
+	MessageType_TradeData = 2
+};
+
 struct ItemTrade
 {
 	int count;
@@ -43,13 +52,14 @@ namespace PlayerTrading
 		VMArray<BGSMod::Attachment::Mod*> getOMods( BGSInventoryItem& _item );
 		VMArray<BGSMod::Attachment::Mod*> getOMods( BGSInventoryItem::Stack* _stack );
 
-		
+		void prepareInventoryItems();
+		void sendItemsInternal();
+		void clearContainer();
+
+		static void handleNewPacket( char* _data, int _size );
 
 		// export functions
-
 		static void toggleKeyboardInput( StaticFunctionTag* base ); // remove?
-		static void listInventoryItems( StaticFunctionTag* _base, TESObjectREFR* _refr );
-		static void sendItems( StaticFunctionTag* _base );
 		
 		static void copyTradeCode( StaticFunctionTag* _base );
 		static bool hasReceivedItems( StaticFunctionTag* _base );
@@ -57,7 +67,7 @@ namespace PlayerTrading
 		
 		static void connect( StaticFunctionTag* _base );
 		static bool checkConnection( StaticFunctionTag* _base );
-		static void confirmTrade( StaticFunctionTag* _base, TESObjectREFR* _container );
+		static void sendItems( StaticFunctionTag* _base, TESObjectREFR* _container );
 
 
 		PluginHandle m_handle;
@@ -68,13 +78,16 @@ namespace PlayerTrading
 		F4SEObjectInterface* m_object;
 
 		TESObjectREFR* m_container;
+		bool m_marked_for_send = true;
 
 		bool m_process_keyboard_input = false;
 		bool m_keyboard_state[ 256 ]; // remove?
 
+		std::mutex m_inventory_mutex;
+
 		std::vector<ItemTrade> m_trade_items;
-		std::vector<int> m_sending;
-		std::vector<int> m_receiving;
+		std::vector<int> m_inventory_buffer;
+		std::vector<UInt32> m_receiving;
 
 		cClient m_client;
 

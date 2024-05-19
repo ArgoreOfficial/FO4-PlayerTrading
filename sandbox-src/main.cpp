@@ -32,10 +32,33 @@ int main()
 	}
 	catch ( ... ) { }
 
-	while ( 1 )
+	while ( client.m_connected_addr == 0 )
+		Sleep( 10 );
+
+	Sleep( 5000 );
+
+	
+	// send dummy trade
 	{
-		Sleep( 100 );
+		std::vector<int> items = { 15, 0x0a, 0, };
+		int buffer_size = items.size() * sizeof( int ) + 4;
+		char* buffer = new char[ buffer_size ];
+		buffer[ 0 ] = PacketType_Message;
+		buffer[ 1 ] = 2; // MessageType_TradeData;
+		buffer[ 2 ] = 0; // padding
+		buffer[ 3 ] = 0;
+		memcpy( buffer + 4, items.data(), buffer_size - 4 );
+
+		printf( "sending: " );
+		for ( int i = 0; i < items.size(); i++ )
+			printf( "%02x ", items[ i ] );
+		printf( "\n" );
+		client.sendData( buffer, buffer_size );
+		delete[] buffer;
 	}
+
+	while ( 1 ) 
+		Sleep( 100 );
 
 	return 0;
 }

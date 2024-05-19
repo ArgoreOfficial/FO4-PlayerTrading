@@ -37,6 +37,7 @@ bool PlayerTrading::cTradingTerminal::init( const F4SEInterface* f4se )
 	} test;
 
 	m_client.create( 9000 );
+	m_client.m_callback = handleNewPacket;
 
 	return true;
 }
@@ -47,12 +48,12 @@ bool PlayerTrading::cTradingTerminal::registerFunctions()
 	auto registerFuncs = []( VirtualMachine* vm )
 		{
 			vm->RegisterFunction( new NativeFunction0( "ToggleKeyboardInput",  EXPORT_SCRIPT, toggleKeyboardInput, vm ) );
-			vm->RegisterFunction( new NativeFunction0( "Connect",              EXPORT_SCRIPT, connect, vm ) );
-			vm->RegisterFunction( new NativeFunction0( "CheckConnection",      EXPORT_SCRIPT, checkConnection, vm ) );
-			vm->RegisterFunction( new NativeFunction1( "ListInventoryItems",   EXPORT_SCRIPT, listInventoryItems, vm ) );
-			vm->RegisterFunction( new NativeFunction0( "ReceiveItemsInternal", EXPORT_SCRIPT, receiveItemsInternal, vm ) );
 			vm->RegisterFunction( new NativeFunction0( "CopyTradeCode",        EXPORT_SCRIPT, copyTradeCode, vm ) );
 			vm->RegisterFunction( new NativeFunction0( "HasReceivedItems",     EXPORT_SCRIPT, hasReceivedItems, vm ) );
+			vm->RegisterFunction( new NativeFunction0( "ReceiveItemsInternal", EXPORT_SCRIPT, receiveItemsInternal, vm ) );
+			vm->RegisterFunction( new NativeFunction0( "Connect",              EXPORT_SCRIPT, connect, vm ) );
+			vm->RegisterFunction( new NativeFunction0( "CheckConnection",      EXPORT_SCRIPT, checkConnection, vm ) );
+			vm->RegisterFunction( new NativeFunction1( "SendItems",            EXPORT_SCRIPT, sendItems, vm ) );
 			return true;
 		};
 
@@ -168,22 +169,14 @@ VMArray<BGSMod::Attachment::Mod*> PlayerTrading::cTradingTerminal::getOMods( BGS
 void PlayerTrading::cTradingTerminal::toggleKeyboardInput( StaticFunctionTag* base )
 {
 	trading_terminal.m_process_keyboard_input = !trading_terminal.m_process_keyboard_input;
-
-	printf( "Toggled Keyboard Input\n" );
-	// BSFixedString n = "Toggled";
-	// CallGlobalFunctionNoWait1<BSFixedString>( "Debug", "Notification", n );
 }
 
-void PlayerTrading::cTradingTerminal::listInventoryItems( StaticFunctionTag* base, TESObjectREFR* refr )
+void PlayerTrading::cTradingTerminal::prepareInventoryItems()
 {
-	if ( !refr )
+	if ( !m_container )
 		return;
 
-	// does refr->GetFullName() work on containers?
-#ifdef ARG_DEBUG
-	printf( "  ---------- %s ---------- \n", refr->GetFullName() );
-#endif
-	BGSInventoryList* inventory = refr->inventoryList;
+	BGSInventoryList* inventory = m_container->inventoryList;
 	if ( !inventory )
 		return;
 
@@ -197,8 +190,8 @@ void PlayerTrading::cTradingTerminal::listInventoryItems( StaticFunctionTag* bas
 		#ifdef ARG_DEBUG
 			printf( "item: %s(%i) [%02x]\n", item.form->GetFullName(), item.stack->count, item.form->formID );
 		#endif
-			trading_terminal.m_sending.push_back( item.stack->count );
-			trading_terminal.m_sending.push_back( item.form->formID );
+			m_inventory_buffer.push_back( item.stack->count );
+			m_inventory_buffer.push_back( item.form->formID );
 
 
 			// get extra data, if any
@@ -217,7 +210,7 @@ void PlayerTrading::cTradingTerminal::listInventoryItems( StaticFunctionTag* bas
 			*/
 
 			// get object mods, if any
-			VMArray<BGSMod::Attachment::Mod*> omods = trading_terminal.getOMods( itemstack ); // identical to PapyrusObjectReference.cpp -> papyrusObjectReference::GetAllMods
+			VMArray<BGSMod::Attachment::Mod*> omods = getOMods( itemstack );
 			for ( int i = 0; i < omods.Length(); i++ )
 			{
 				BGSMod::Attachment::Mod* omod;
@@ -225,28 +218,79 @@ void PlayerTrading::cTradingTerminal::listInventoryItems( StaticFunctionTag* bas
 			#ifdef ARG_DEBUG
 				printf( "  mod: %s [%02x]\n", omod->fullName.name.c_str(), omod->formID );
 			#endif
-				trading_terminal.m_sending.push_back( omod->formID );
+				m_inventory_buffer.push_back( omod->formID );
 			}
 
 			itemstack = itemstack->next;
-			trading_terminal.m_sending.push_back( 0 );
+			m_inventory_buffer.push_back( 0 );
 		} while ( itemstack );
 	}
 
 	inventory->inventoryLock.UnlockRead();
-
-	sendItems( base );
 }
 
-void PlayerTrading::cTradingTerminal::sendItems( StaticFunctionTag* base )
+void PlayerTrading::cTradingTerminal::sendItemsInternal()
 {
-	// send items
-	trading_terminal.m_sending.insert( trading_terminal.m_sending.begin(), ePacketType::PacketType_Send );
+	prepareInventoryItems();
 
-	for ( int i = 0; i < trading_terminal.m_sending.size(); i++ )
-		printf( "[%02x]", trading_terminal.m_sending[ i ] );
+	char* buffer = new char[ m_inventory_buffer.size() * sizeof( int ) + 4 ];
+	buffer[ 0 ] = PacketType_Message;
+	buffer[ 1 ] = MessageType_TradeData;
+	buffer[ 2 ] = 0; // padding
+	buffer[ 3 ] = 0; 
 
-	trading_terminal.m_client.sendDataToConnected( trading_terminal.m_sending.data(), trading_terminal.m_sending.size() * sizeof( int ) );
+	memcpy( buffer + 4, m_inventory_buffer.data(), m_inventory_buffer.size() * sizeof( int ) );
+
+	for ( int i = 0; i < m_inventory_buffer.size(); i++ )
+		printf( "[%02x]", m_inventory_buffer[ i ] );
+
+	m_client.sendData( buffer, m_inventory_buffer.size() * sizeof( int ) );
+	delete[] buffer;
+
+	clearContainer();
+}
+
+void PlayerTrading::cTradingTerminal::clearContainer()
+{
+	if ( !m_container )
+		return;
+
+	BGSInventoryList* inventory = m_container->inventoryList;
+	if ( !inventory )
+		return;
+
+	inventory->inventoryLock.LockForWrite();
+	for ( int i = 0; i < inventory->items.count; i++ )
+	{
+		inventory->items.Remove( i );
+		i--;
+	}
+	inventory->inventoryLock.UnlockWrite();
+
+}
+
+void PlayerTrading::cTradingTerminal::handleNewPacket( char* _data, int _size )
+{
+	if ( _data[ 0 ] == PacketType_Response && trading_terminal.m_marked_for_send )
+	{
+		trading_terminal.sendItemsInternal();
+	}
+	else if ( _data[ 0 ] == PacketType_Message && _data[ 1 ] == MessageType_TradeData ) // items
+	{
+		int tmp_size = _size / 4;
+		int* tmp = new int[ tmp_size ];
+		memcpy( tmp, _data, _size );
+
+		trading_terminal.m_inventory_mutex.lock();
+		for ( int i = 1; i < tmp_size; i++ )
+			trading_terminal.m_receiving.push_back( tmp[ i ] );
+		trading_terminal.m_inventory_mutex.unlock();
+
+		BSFixedString notif = "You've got mail!";
+		CallGlobalFunctionNoWait1( "Debug", "Notification", notif );
+
+		delete[] tmp;
+	}
 }
 
 void PlayerTrading::cTradingTerminal::copyTradeCode( StaticFunctionTag* _base )
@@ -258,18 +302,25 @@ void PlayerTrading::cTradingTerminal::copyTradeCode( StaticFunctionTag* _base )
 
 bool PlayerTrading::cTradingTerminal::hasReceivedItems( StaticFunctionTag* _base )
 {
-	return false;
+	trading_terminal.m_inventory_mutex.lock();
+	bool res = !trading_terminal.m_receiving.empty();
+	trading_terminal.m_inventory_mutex.unlock();
+
+	return res;
 }
 
 VMArray<UInt32> PlayerTrading::cTradingTerminal::receiveItemsInternal( StaticFunctionTag* base )
 {
-	std::vector<UInt32> vec =
-	{
-		1,  0x9983b,  0x12eced, 0x997c9, 0x99836, 0x1877fa, 0x4f21d, 0,
-		10, 0x0a,                                                    0,
-		1,  0x18796c, 0x46d8e,  0x46d97, 0x18e59c,                   0
-	};
-
+	//std::vector<UInt32> vec =
+	//{
+	//	1,  0x9983b,  0x12eced, 0x997c9, 0x99836, 0x1877fa, 0x4f21d, 0,
+	//	10, 0x0a,                                                    0,
+	//	1,  0x18796c, 0x46d8e,  0x46d97, 0x18e59c,                   0
+	//};
+	trading_terminal.m_inventory_mutex.lock();
+	std::vector<UInt32> vec = trading_terminal.m_receiving;
+	trading_terminal.m_receiving.clear();
+	trading_terminal.m_inventory_mutex.unlock();
 	return vec;
 }
 
@@ -302,19 +353,7 @@ bool PlayerTrading::cTradingTerminal::checkConnection( StaticFunctionTag* base )
 	return connected;
 }
 
-void PlayerTrading::cTradingTerminal::confirmTrade( StaticFunctionTag* _base, TESObjectREFR* _container )
+void PlayerTrading::cTradingTerminal::sendItems( StaticFunctionTag* _base, TESObjectREFR* _container )
 {
-	cClient& client = trading_terminal.m_client;
-
-	if ( client.m_received_data )
-	{
-		std::vector<int> data = client.getReceivedData();
-		if ( data[ 0 ] == PacketType_ConfirmTrade )
-
-			return;
-	}
-
-	int buffer[ 1 ];
-	buffer[ 0 ] = PacketType_ConfirmTrade;
-	trading_terminal.m_client.sendDataToConnected( buffer, sizeof( buffer ) );
+	trading_terminal.m_marked_for_send = true;
 }

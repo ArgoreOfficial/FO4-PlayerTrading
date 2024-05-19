@@ -24,36 +24,48 @@ DWORD WINAPI receiveThread( LPVOID _param )
 	SOCKET sock = client->m_socket;
 	SOCKADDR_IN recv_addr = { 0 };
 	int ret, recv_size;
-	int buffer[ 1024 / sizeof(int) ];
+	char buffer[ 1024 ];
 
 	while ( true )
 	{
 		Sleep( 10 );
 
 		recv_size = sizeof( recv_addr );
-		ret = recvfrom( sock, (char*)buffer, 1024, 0, (SOCKADDR*)&recv_addr, &recv_size );
+		ret = recvfrom( sock, buffer, 1024, 0, (SOCKADDR*)&recv_addr, &recv_size );
 		
 		if ( ret == SOCKET_ERROR )
 			continue;
 
-		if ( !client->m_connected_addr || client->m_connected_addr == recv_addr.sin_addr.S_un.S_addr )
+		if ( !client->m_connected_addr && buffer[ 0 ] == PacketType_Connect )
 		{
-			switch( buffer[ 0 ] )
+			client->handleConnection( recv_addr );
+		}
+		else if ( client->m_connected_addr == recv_addr.sin_addr.S_un.S_addr )
+		{
+			if ( buffer[ 0 ] == PacketType_Disconnect )
 			{
-			case PacketType_Connect:
-			{
-				client->handleConnection( recv_addr );
-			} break;
-			case PacketType_Send:
-			{
-
-				printf( "got something\n" );
-				for ( int i = 0; i < ret / 4; i++ )
-					printf( "[%02x]", buffer[ i ] );
-
-			} break;
+				client->m_connected_addr = 0;
+				client->m_connected_port = 0;
+				continue;
 			}
 
+			if ( client->m_callback )
+				client->m_callback( buffer, ret );
+			
+			//switch( buffer[ 0 ] )
+			//{
+			//case PacketType_Message:
+			//{
+			//	for ( int i = 0; i < ret; i++ )
+			//		client->m_recv_buffer.push_back( buffer[ i ] );
+			//} break;
+
+			//case PacketType_Checkup:
+			//{
+			//	char buffer[] = { PacketType_CheckupResponse, 0 };
+			//	client->sendData( buffer, sizeof( buffer ) );
+			//}
+			//}
 		}
 	}
 
@@ -65,13 +77,11 @@ void cClient::create( WORD _port )
 	WSADATA wsa_data = { 0 };
 	WSAStartup( MAKEWORD( 2, 2 ), &wsa_data );
 
-
 	m_socket = makeSocket( _port );
 	if ( m_socket )
 		m_thread = CreateThread( NULL, 0, receiveThread, (PVOID)this, 0, NULL );
 	else
 		destroy();
-
 }
 
 void cClient::destroy()
@@ -89,8 +99,8 @@ void cClient::destroy()
 
 void cClient::connect( const char* _ip, WORD _port )
 {
-	m_send_buffer[ 0 ] = PacketType_Connect;
-	sendData( _ip, _port );
+	char buffer[] = { PacketType_Connect, 0 };
+	sendData( _ip, _port, buffer, sizeof( buffer ) );
 }
 
 void cClient::handleConnection( SOCKADDR_IN _addr )
@@ -107,8 +117,8 @@ void cClient::handleConnection( SOCKADDR_IN _addr )
 
 		_addr.sin_family = AF_INET;
 
-		m_send_buffer[ 0 ] = PacketType_Connect;
-		sendto( m_socket, m_send_buffer, sizeof( m_send_buffer ), 0, (SOCKADDR*)&_addr, sizeof( _addr ) );
+		char buffer[] = { PacketType_Connect, 1 };
+		sendto( m_socket, buffer, sizeof( buffer ), 0, (SOCKADDR*)&_addr, sizeof( _addr ) );
 	}
 }
 
@@ -123,12 +133,7 @@ void cClient::sendData( const char* _ip, WORD _port, void* _buffer, int _size )
 	int res = sendto( m_socket, (char*)_buffer, _size, 0, (SOCKADDR*)&send_addr, sizeof( send_addr ) );
 }
 
-void cClient::sendData( const char* _ip, WORD _port )
-{
-	sendData( _ip, _port, m_send_buffer, sizeof( m_send_buffer ) );
-}
-
-void cClient::sendDataToConnected( void* _buffer, int _size )
+void cClient::sendData( void* _buffer, int _size )
 {
 	SOCKADDR_IN send_addr = { 0 };
 
@@ -137,14 +142,6 @@ void cClient::sendDataToConnected( void* _buffer, int _size )
 	send_addr.sin_addr.S_un.S_addr = m_connected_addr;
 
 	int res = sendto( m_socket, (char*)_buffer, _size, 0, (SOCKADDR*)&send_addr, sizeof( send_addr ) );
-}
-
-std::vector<int> cClient::getReceivedData()
-{
-	if( !m_received_data || m_data_size == 0 ) 
-		return std::vector<int>();
-
-
 }
 
 SOCKET cClient::makeSocket( WORD _port )

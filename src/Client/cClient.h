@@ -7,9 +7,10 @@
 
 enum ePacketType
 {
-	PacketType_Connect = 1,
-	PacketType_Send = 2,
-	PacketType_ConfirmTrade = 3
+	PacketType_Connect    = 1,
+	PacketType_Disconnect = 2,
+	PacketType_Message    = 3,
+	PacketType_Response   = 4
 };
 
 union uAddressCode {
@@ -41,13 +42,12 @@ public:
 	void handleConnection( SOCKADDR_IN _addr );
 
 	void sendData( const char* _ip, WORD _port, void* _buffer, int _size );
-	void sendData( const char* _ip, WORD _port );
-	void sendDataToConnected( void* _buffer, int _size );
-
-	std::vector<int> getReceivedData();
+	void sendData( void* _buffer, int _size );
 
 	SOCKET makeSocket( WORD _port );
 	uAddressCode getExternalIP();
+
+	void( *m_callback )( char* _data, int _size ) = nullptr;
 
 	uAddressCode m_external_ip{};
 
@@ -56,10 +56,4 @@ public:
 
 	ULONG m_connected_addr = 0;
 	USHORT m_connected_port = 0;
-
-	bool m_received_data = false;
-	int m_data_size = 0;
-	char m_recv_buffer[ 1024 ];
-	char m_send_buffer[ 1024 ];
-
 };
